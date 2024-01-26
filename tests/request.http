@@ -1,6 +1,6 @@
 ###
 # @name invoiceProcessingRequests 
-POST http://127.0.0.1:5000/invoice-processing-requests
+POST http://127.0.0.1:8080/invoice-processing-requests
 Content-Type: multipart/form-data; boundary=jj
 
 --jj
