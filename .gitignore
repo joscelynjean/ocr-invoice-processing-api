@@ -161,6 +161,7 @@ cython_debug/
 
 # Test data
 tests/invoices
+temp/**/*.*
 
 # Mac
 .DS_Store
