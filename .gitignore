@@ -161,6 +161,7 @@ cython_debug/
 
 # Test data
 tests/invoices
+tests/training
 temp/**/*.*
 
 # Mac

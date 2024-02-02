@@ -1,21 +1,21 @@
 from flask import Flask, request
 import pdf2image
-import pytesseract
+import pickle
 import cv2
 import numpy as np
 import uuid
+import json
 import pandas as pd
-import re
+
+from processing import build_dataframe_from_ocr_data, pre_processing_image, text_recognition_from_image
 
 DEBUG=True
 
+model_filename = './src/invoice-model.pkl'
+model = pickle.load(open(model_filename, 'rb'))
+
 app = Flask(__name__)
-
-def pdf_to_image(pdf_content):
-    return pdf2image.convert_from_bytes(pdf_content, fmt="jpeg")
-
-def image_to_text(image_content):
-    return pytesseract.image_to_string(image_content)
+app.config['JSON_AS_ASCII'] = False
 
 @app.route("/invoice-processing-requests", methods=["POST"])
 def process_invoice():
@@ -43,17 +43,12 @@ def process_invoice():
     # ----------------------------------------------------------------------------
     # STEP 2 : Pre-processing of the image
     # ----------------------------------------------------------------------------
-    
-    # Here, should use technique to make the image better for the OCR (ex: remove border, contrast)
-    # TODO : Improving image for recognition
+    image_page = pre_processing_image(image_page)
 
     # ----------------------------------------------------------------------------
     # STEP 3: Text recognition from OCR (using Tesseract)
     # ----------------------------------------------------------------------------
-    
-    # TODO : Remove content and build it from data instead
-    ocr_content = pytesseract.image_to_string(image_page)
-    ocr_data = pytesseract.image_to_data(image_page, output_type=pytesseract.Output.DICT)
+    ocr_data = text_recognition_from_image(image_page)
     
     # ----------------------------------------------------------------------------
     # STEP 4: Post-processing
@@ -71,24 +66,12 @@ def process_invoice():
     # ----------------------------------------------------------------------------
     # STEP 5: Classification by using Machine learning
     # ----------------------------------------------------------------------------
+    df = build_dataframe_from_ocr_data(ocr_data)
     
-    df = pd.DataFrame(ocr_data)
+    # Build content from OCR data
+    ocr_content = ' '.join(df.text)
     
-    df['match_qst_pattern'] = df.text.apply(lambda t: int(bool(re.search("\d{10}TQ\d{4}", t, re.IGNORECASE))))
-    df['match_gst_pattern'] = df.text.apply(lambda t: int(bool(re.search("\d{9}", t, re.IGNORECASE))))
-    df['amount'] = df.text.apply(lambda t: int(bool(re.search("^[+-]?[0-9]{1,3}(?:,?[0-9]{3})*[\.|,][0-9]{2} ?\$?$", t))))
-    
-    # ----------------------------------------------------------------------------
-    # STEP 6: Return result
-    # ----------------------------------------------------------------------------
-    
-    if DEBUG :
-        df.to_csv('temp/' + request_id + '.csv', index=True)
-        with open('temp/' + request_id + '.txt', 'w') as f:
-            for level, page_num, block_num, par_num, line_num, word_num, left, top, width, height, conf, text in zip(ocr_data['level'], ocr_data['page_num'], ocr_data['block_num'], ocr_data['par_num'], ocr_data['line_num'], ocr_data['word_num'], ocr_data['left'], ocr_data['top'], ocr_data['width'], ocr_data['height'], ocr_data['conf'], ocr_data['text']):
-                f.write('{0} {1} {2} {3} {4} {5} {6} {7} {8} {9} {10} {11}\n'.format(level, page_num, block_num, par_num, line_num, word_num, left, top, width, height, conf, text))
-    
-    return {
+    result = {
         'id': request_id,
         'documentType': '',
         'gstAmount': '',
@@ -100,6 +83,31 @@ def process_invoice():
         'qstNumber': '',
         'ocrResult': ocr_content
     }
+    
+    # Run the model for each row
+    selected_features = ['match_qst_pattern','match_gst_pattern','amount']
+    for i, row in df.iterrows():
+        clean_row = row[selected_features]
+        clean_row = clean_row.to_numpy().reshape(1, -1)
+        prediction = model.predict(clean_row)
+
+        match prediction:
+            case 1: result['purchaseOrder'] = row.text
+            case 2: result['gstNumber'] = row.text
+            case 3: result['qstNumber'] = row.text
+            case 4: result['totalAmount'] = row.text
+    
+    # ----------------------------------------------------------------------------
+    # STEP 6: Return result
+    # ----------------------------------------------------------------------------
+    
+    if DEBUG : df.to_csv('temp/' + request_id + '.csv', index=False)
+    
+    return app.response_class(
+        response=json.dumps(result, ensure_ascii=False).encode('utf8'),
+        status=200,
+        mimetype='application/json'
+    )
     
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port='8080', debug=DEBUG)
