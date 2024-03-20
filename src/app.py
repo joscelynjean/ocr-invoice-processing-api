@@ -7,7 +7,8 @@ import uuid
 import json
 import pandas as pd
 
-from processing import build_dataframe_from_ocr_data, pre_processing_image, text_recognition_from_image
+from processing import build_dataframe_from_ocr_data, get_features, pre_processing_image, text_recognition_from_image
+from utils import Classification
 
 DEBUG=True
 
@@ -71,31 +72,64 @@ def process_invoice():
     # Build content from OCR data
     ocr_content = ' '.join(df.text)
     
+    # Default values
     result = {
         'id': request_id,
         'documentType': '',
+        'documentTypeRate': 0,
         'gstAmount': '',
+        'gstAmountRate': 0,
         'qstAmount': '',
-        'taxAmount': '',
+        'qstAmountRate': 0,
+        'otherTaxAmount': '',
+        'otherTaxAmountRate': 0,
+        'subTotalAmount': '',
+        'subTotalAmountRate': 0,
         'totalAmount': '',
+        'totalAmountRate': 0,
         'purchaseOrder': '',
+        'purchaseOrderRate': 0,
         'gstNumber': '',
+        'gstNumberRate': 0,
         'qstNumber': '',
+        'qstNumberRate': 0,
+        'referenceDate':'',
+        'referenceDateRate': 0,
+        'referenceNumber': '',
+        'referenceNumberRate': 0,
         'ocrResult': ocr_content
     }
     
     # Run the model for each row
-    selected_features = ['match_qst_pattern','match_gst_pattern','amount']
+    selected_features = get_features()
     for i, row in df.iterrows():
         clean_row = row[selected_features]
         clean_row = clean_row.to_numpy().reshape(1, -1)
         prediction = model.predict(clean_row)
-
-        match prediction:
-            case 1: result['purchaseOrder'] = row.text
-            case 2: result['gstNumber'] = row.text
-            case 3: result['qstNumber'] = row.text
-            case 4: result['totalAmount'] = row.text
+        prediction_prob = model.predict_proba(clean_row)
+        trust_level = prediction_prob[0, prediction][0]
+        
+        # If there is a successful classification other than none (0)
+        if prediction > 0:
+            token_classification = 'none'
+            # Get classification name
+            match prediction:
+                case Classification.PURCHASE_ORDER.value: token_classification = 'purchaseOrder'
+                case Classification.GST_NUMBER.value: token_classification = 'gstNumber'
+                case Classification.QST_NUMBER.value: token_classification = 'qstNumber'
+                case Classification.TOTAL_AMOUNT.value: token_classification = 'totalAmount'
+                case Classification.SUB_TOTAL_AMOUNT.value: token_classification = 'subTotalAmount'
+                case Classification.GST_AMOUNT.value: token_classification = 'gstAmount'
+                case Classification.QST_AMOUNT.value: token_classification = 'qstAmount'
+                case Classification.OTHER_TAX_AMOUNT.value: token_classification = 'otherTaxAmount'
+                case Classification.REFERENCE_DATE.value: token_classification = 'referenceDate'
+                case Classification.REFERENCE_NUMBER.value: token_classification = 'referenceNumber'
+                
+                
+            # Better trust level? Replace the value
+            if trust_level > result[token_classification + 'Rate']:
+                result[token_classification] = row.text
+                result[token_classification + 'Rate'] = trust_level
     
     # ----------------------------------------------------------------------------
     # STEP 6: Return result

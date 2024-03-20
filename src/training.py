@@ -13,6 +13,7 @@ import re
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.model_selection import train_test_split
+from processing import get_features
 from utils import Classification
 
 DEBUG=True
@@ -33,6 +34,13 @@ def determine_classification(row, expectation) -> int:
     if expectation.qst_number.size > 0 and ocr_text == expectation.qst_number.values[0]: return Classification.QST_NUMBER.value
     if expectation.gst_number.size > 0 and ocr_text == expectation.gst_number.values[0]: return Classification.GST_NUMBER.value
     if expectation.total_amount.size > 0 and ocr_text == expectation.total_amount.values[0]: return Classification.TOTAL_AMOUNT.value
+    if expectation.sub_total_amount.size > 0 and ocr_text == expectation.sub_total_amount.values[0]: return Classification.SUB_TOTAL_AMOUNT.value
+    if expectation.gst_amount.size > 0 and ocr_text == expectation.gst_amount.values[0]: return Classification.GST_AMOUNT.value
+    if expectation.qst_amount.size > 0 and ocr_text == expectation.qst_amount.values[0]: return Classification.QST_AMOUNT.value
+    if expectation.other_tax_amount.size > 0 and ocr_text == expectation.other_tax_amount.values[0]: return Classification.OTHER_TAX_AMOUNT.value
+    if expectation.reference_date.size > 0 and ocr_text == expectation.reference_date.values[0]: return Classification.REFERENCE_DATE.value
+    if expectation.reference_number.size > 0 and ocr_text == expectation.reference_number.values[0]: return Classification.REFERENCE_NUMBER.value
+    
     return Classification.NONE.value
 
 # Build expected classification for each csv
@@ -64,7 +72,7 @@ df = pd.concat(df_data, ignore_index=True)
 df = df.drop(df[df.classification == 0].sample(frac=.99).index)
 
 # Build training data
-selected_features = ['match_qst_pattern','match_gst_pattern','amount']
+selected_features = get_features()
 X = df[selected_features]
 y = df.classification
 
@@ -72,8 +80,8 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_
 
 # Train the model
 model = LogisticRegression(multi_class='multinomial',solver='newton-cg', max_iter=10000)
-model.fit(X_train, y_train)
-predictions = model.predict(X_test)
+model.fit(X_train.values, y_train)
+predictions = model.predict(X_test.values)
 
 print(classification_report(y_test, predictions))
 # print('Predicted labels: ', predictions)
