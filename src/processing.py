@@ -17,7 +17,7 @@ sub_total_amount_labels = read_csv_to_array('data/keywords/subTotalAmount.csv')
 total_amount_labels = read_csv_to_array('data/keywords/totalAmount.csv')
 
 def get_features():
-    return ['match_qst_pattern','match_gst_pattern','amount', 'surrounded_by_gst_amount_label', 'surrounded_by_gst_number_label', 'surrounded_by_invoice_number_label', 'surrounded_by_purchase_order_label', 'surrounded_by_qst_amount_label', 'surrounded_by_qst_number_label', 'surrounded_by_reference_date_label', 'surrounded_by_reference_number_label', 'surrounded_by_sub_total_amount_label', 'surrounded_by_total_amount_label' ]
+    return ['match_qst_pattern','match_gst_pattern','amount', 'date_1_pattern', 'date_2_pattern', 'date_3_pattern', 'date_4_pattern', 'purchase_order_1_pattern', 'purchase_order_2_pattern', 'surrounded_by_gst_amount_label', 'surrounded_by_gst_number_label', 'surrounded_by_invoice_number_label', 'surrounded_by_purchase_order_label', 'surrounded_by_qst_amount_label', 'surrounded_by_qst_number_label', 'surrounded_by_reference_date_label', 'surrounded_by_reference_number_label', 'surrounded_by_sub_total_amount_label', 'surrounded_by_total_amount_label' ]
 
 def pre_processing_image(img):
     return img
@@ -25,8 +25,6 @@ def pre_processing_image(img):
 def text_recognition_from_image(img):
     return pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
 
-#df['same_line_label_left'] = df.text.shift(periods=3).where(df.line_num.shift(periods=3) == df.line_num, '') + ' ' + df.text.shift(periods=2).where(df.line_num.shift(periods=2) == df.line_num, '') + ' ' + df.text.shift(periods=1).where(df.line_num.shift(periods=1) == df.line_num, '')
-     
 def surrounding_text_on_left(r, df: pd.DataFrame, accuracy):
     results = df.text.where((df.top >= (r.top - accuracy)) & (df.top <= (r.top + accuracy)) & ~pd.isnull(df.text), np.NAN)
     results = results.dropna()
@@ -37,14 +35,25 @@ def surrounding_text_on_left(r, df: pd.DataFrame, accuracy):
 def build_dataframe_from_ocr_data(ocr_data):
     df = pd.DataFrame(ocr_data)
     
+    # Clean strings
+    df.text = df.text.str.strip()
+    
+    # Remove any row which not contains text
+    df = df[df.text != '']
+    
     # Patterns
     df['match_qst_pattern'] = df.text.apply(lambda t: int(bool(re.search("\d{10}TQ\d{4}", t, re.IGNORECASE))))
-    df['match_gst_pattern'] = df.text.apply(lambda t: int(bool(re.search("\d{9}", t, re.IGNORECASE))))
-    df['amount'] = df.text.apply(lambda t: int(bool(re.search("^[+-]?[0-9]{1,3}(?:,?[0-9]{3})*[\.|,][0-9]{2} ?\$?$", t))))
-    # Date pattern
-    # 2024-02-01
-    # 31/01/2024
+    df['match_gst_pattern'] = df.text.apply(lambda t: int(bool(re.search("R?\d{9}(RT[0O]{0,3}1)?", t, re.IGNORECASE))))
+    df['amount'] = df.text.apply(lambda t: int(bool(re.search("^\$?[+-]?[0-9]{1,3}(?:,?[0-9]{3})*[\.|,][0-9]{2} ?\$?$", t))))
+    
+    df['date_1_pattern'] = df.text.apply(lambda t: int(bool(re.search("\d{4}[-\\\/]{1}(0?[1-9]|1[012])[-\\\/]{1}(0?[1-9]|[12][0-9]|3[01])", t, re.IGNORECASE))))
+    df['date_2_pattern'] = df.text.apply(lambda t: int(bool(re.search("(0?[1-9]|[12][0-9]|3[01])[-\\\/]{1}(0?[1-9]|1[012])[-\\\/]{1}\d{4}", t, re.IGNORECASE))))
+    df['date_3_pattern'] = df.text.apply(lambda t: int(bool(re.search("(0?[1-9]|1[012])[-\\\/]{1}(0?[1-9]|[12][0-9]|3[01])[-\\\/]{1}\d{4}", t, re.IGNORECASE))))
+    df['date_4_pattern'] = df.text.apply(lambda t: int(bool(re.search("\d{2} {1}\w+ {1}\d{2}", t, re.IGNORECASE))))
      
+    df['purchase_order_1_pattern'] = df.text.apply(lambda t: int(bool(re.search("^(\w{3})?\d{6,7}$", t, re.IGNORECASE))))
+    df['purchase_order_2_pattern'] = df.text.apply(lambda t: int(bool(re.search("^(SDF)?\d{2,7}$", t, re.IGNORECASE))))
+    
     # Surrounding
     df['same_line_surrounding_text'] = df.apply(lambda r: surrounding_text_on_left(r, df, 10), axis=1)
     # Probably better way to do it
